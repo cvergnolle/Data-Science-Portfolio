@@ -8,22 +8,12 @@ I am actively seeking opportunities as a Data Scientist/Analyst and am committed
 
 ## Projects
 
-Here, you'll find a collection of data science projects I've worked on. Each project includes a brief description and a link to the project's repository or documentation.
 
-### Project 1: Project Name
+<img align="left" width="250" height="150" src="Images/College Football.png"> **[College Football Revenue Prediction](https://github.com/cvergnolle/Data-Science-Portfolio/tree/06af2a49147642dda0d87895eec75fa784b2444b/College%20Football%20Revenue%20Prediction)**
 
-- Description: A brief description of the project.
-- GitHub Repository: [Link to GitHub Repository](https://github.com/yourusername/project1)
-
-### Project 2: Project Name
-
-- Description: Another brief description of the project.
-- GitHub Repository: [Link to GitHub Repository](https://github.com/yourusername/project2)
-
-...
 
 ## Contact Information
 
 - Email: corentin.vergnolle@gmail.com
-- LinkedIn: https://www.linkedin.com/in/corentin-vergnolle/
+- LinkedIn: [Your LinkedIn Profile](https://www.linkedin.com/in/yourusername)
 - Portfolio Website: [Your Portfolio Website](https://www.yourportfoliowebsite.com)
