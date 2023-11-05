@@ -31,6 +31,6 @@ This study aims to identify and visualize factors contributing to customer churn
 
 - Email: corentin.vergnolle@gmail.com
 - LinkedIn: www.linkedin.com/in/corentin-vergnolle/
-- Resume: [Corentin Vergnolle Resume](Images/resume.pdf)
+- Resume: [Corentin Vergnolle Resume](Images/Resume.pdf)
 
 
