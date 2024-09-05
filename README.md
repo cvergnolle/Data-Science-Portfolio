@@ -2,9 +2,9 @@
 
 ## Introduction
 
-Hello, my name is Corentin Vergnolle and I am a fourth-year student at the University of California, Santa Barbara. I'm enrolled in the Letters & Science Honors Program and currently pursuing a dual major in Statistics & Data Science and Economics & Accounting.
+Hello, my name is Corentin Vergnolle and I am a recent graduate from the University of California, Santa Barbara. I graduated from the Letters & Science Honors Program with a double major in Statistics & Data Science and Economics & Accounting.
 
-My primary focus is on becoming a proficient Data Scientist/Analyst, and I'm enthusiastic about enhancing my expertise and capabilities in this field. If you have any suggestions, feedback on my projects, or job opportunities, please don't hesitate to contact me at one of the links below.
+My primary focus is on developing my skills as a data analyst and using those skills to help drive business value in my next position. If you have any suggestions, feedback on my projects, or job opportunities, please don't hesitate to contact me at one of the links below.
 
 ## Projects
 
