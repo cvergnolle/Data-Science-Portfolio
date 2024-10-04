@@ -8,7 +8,7 @@ My primary focus is on developing my skills as a data analyst and using those sk
 
 ## Projects
 
-<img align="left" width="250" height="150" src="Images/Gold.png"> **[Gold Price Prediction](https://github.com/cvergnolle/Data-Science-Portfolio/blob/e90b0245d7c3a93a9d93bee622e87e5fa56d40f5/Projects/Gold%20Price%20Prediction/PSTAT131FinalProject.html)**
+<img align="left" width="250" height="175" src="Images/Gold.png"> **[Gold Price Prediction](https://github.com/cvergnolle/Data-Science-Portfolio/blob/e90b0245d7c3a93a9d93bee622e87e5fa56d40f5/Projects/Gold%20Price%20Prediction/PSTAT131FinalProject.html)**
 
 Conducted EDA, feature engineering, cross-validation, and tuning to build a model that predicts 24-hour gold price changes using over 15 predictors and machine learning models, achieving a mean RMSE of 19.5. Scraped and cleaned data from multiple sources to compile a dataset of economic indicators, lag variables, and calculated variables, and applied both time-series and independent-observation models for analysis.
 
