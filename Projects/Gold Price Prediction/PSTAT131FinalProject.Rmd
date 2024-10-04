@@ -1,0 +1,924 @@
+---
+title: "Predicting Future Gold Prices"
+author: "Corentin Vergnolle"
+date: "2024-08-26"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(tidymodels)
+library(ggplot2)
+library(corrplot)
+library(ggthemes)
+library(kableExtra)
+library(yardstick)
+library(lubridate)
+library(randomForest)
+library(gbm)
+library(xgboost)
+library(rsample)
+library(forecast)
+library(prophet)
+```
+
+## Introduction
+
+Gold has long been recognized as a critical indicator of economic strength and market conditions. As a stable asset, it often reflects broader economic trends, serving as a barometer for investor confidence and a hedge against market volatility. In periods of economic uncertainty, gold prices tend to rise as investors seek safe-haven assets, while in stable conditions, the demand for gold may decline in favor of riskier investments. This project leverages machine learning techniques to predict the closing price of gold in the upcoming day, using a variety of economic and market predictors. In this project, I hope to leverage my machine learning skills with my background in economics to develop a reliable model that, given conditions on a given day, can predict the overall movement of gold in the next 24 hours.
+
+To achieve this goal, I personally collected economic data on spanning from the January 1, 2022 through August 7, 2024. Our target variable is a lag variable which I already added into the data set as I was compiling it, although this could also have been done in R by simply taking the price of gold and shifting it down by 1 row. This variable is `PriceTomorrow`. To help us predict this variable, I conducted research into the economic indicators that are relevant in predicting gold prices and added all variables that were publicly accessible. It’s important to note that I included only variables that are available and applicable on the current day. My goal was to ensure that all features could be accessed for the present day, so that at any point in the future, I could gather the data for the current date, input it into the model, and obtain a prediction for gold's movement over the next day. This forced me to omit features such as GDP Growth Rate and cost-price indexes. Another important thing to note is that this data set is unable to capture current political situations, which can heavily impact the price of gold. Unfortunately, there is no way to include who is leading in the race for the presidential election, or if a bill has passed or been rejected, or any number of other situations that could impact the market. That being said, the features that have included should still be effective in capturing some of the effect of these political situations and including them in our model. One final issue to address is the inherent longitudinal nature of the data. Since the data follows a timeline, our observations will be correlated with each other, violating the most basic assumption of many machine learning models. Ideally, we would utilize time-series modeling in this situation, however, I do not have experience with this method, so I will begin by treating the data as independent observations, and if I have the time, I will attempt to model the data using time series analysis afterward.
+
+#### Data Citation 
+
+As I mentioned, I manually collected the data from a series of government and financial websites. Below, I will include a link to the data set, which has been posted on Kaggle. There, you can find a brief description of every variable that is included in the set as well as a link to the source of each variable's data. The data was simply copied and pasted into an excel sheet, where I then used x-lookup to ensure that the data for each date was assigned to the correct row.
+
+A codebook has also been attached with my submission. This book contains the same information as the link, describing each of the variables in the data set as well as the sources from which they were collected. Please note, small changes were made to the dataset after being added into Kaggle, so for the most recent dataset, go to the project files and seperately attached codebook rather than the online source.
+
+[Kaggle Link](https://www.kaggle.com/datasets/cvergnolle/gold-price-and-relevant-metrics)
+
+Here is also a brief summary of the variables in the data set: 
+
+- `Date`: Date of recorded price and other measures.
+- `Lag_2`: Price of gold 2 days before date. Calculated by shifting the price of gold down two days.
+- `Lag_1`: Price of gold 1 day before date. Calculated by shifting the price of gold down one day.
+- `Price`: Price of Gold at the respective date.
+- `PriceTomorrow`: Price of Gold Tomorrow. Calculated by shifting the price of gold up one day. This is our target variable!
+- `PriceChangeTomorrow`: Change in price between the present price and tomorrow’s price. To be removed.
+- `PriceChangeTen`: Change in price between present price and price 10 days from now. To be removed.
+- `StdDevTen`: The standard deviation of gold prices in the last 10 days
+- `TwentyMovingAverage`: Moving average of gold price in last 20 days. Calculated by summing the price of gold in over that span of time and dividing by the number of days.
+- `FiftyMovingAverage`: Moving average of gold price in last 50 days. Calculated by summing the price of gold in over that span of time and dividing by the number of days.
+- `TwoHundredMovingAverage`: Moving average of gold price in last 200 days. Calculated by summing the price of gold in over that span of time and dividing by the number of days.
+- `MonthlyInflationRate`: Historical inflation rate by month, assuming no change in inflation from June 2024 - present.
+- `EFFR`: Effective federal funds rate - Current interest rate set by the Fed.
+- `Volume`: Total amount of overnight loans taking place at the Fed, recorded in Billions.
+- `TreasuryParYieldMonth`: Yield on 1-month U.S. Treasury Bonds.
+- `TreasuryParYieldTwoYear`: Yield on 2-year U.S. Treasury Bonds.
+- `TreasuryParYieldTenYear`: Yield on 10-year U.S. Treasury Bonds.
+- `DXY`: Price of US Dollar Index, showing the strength of USD in relation to other currencies.
+- `SP`: Opening price of the S&P 500, A broad measure of U.S. stock market performance.
+- `VIX`: The opening price of VIX (Volatility Index). Measures market volatility; often called the “fear index”.
+- `Crude`: Opening price of Crude Oil.
+
+
+## Exploratory Data Analysis
+
+In our Exploratory Data Analysis portion of this project, we will read in our data and create some visualizations to get an idea of how our predictor variables are distributed and how they are correlated with our target variable. Since all of our variables are continuous numerical variables that inherently change wit time, we will tend to plot them as lines with the x-axis being the date at which they were recorded. In this section, we will also address the issue of missing values in the data set and get our data prepared for modeling.
+
+### Reading in Data
+
+Here, we read in the data, adjust the variable type for our date variable such that it is readable by R, and remove the `PriceChangeTomorrow` and `PriceChangeTen` variables, which cannot be used in our model as they cannot be known on any given day. Either of these could also be target variables instead of `PriceTomorrow.` I opted to choose `PriceTomorrow` instead, however since `PriceChangeTomorrow` has huge volatility and represents essentially the same thing as `PriceTomorrow`. `PriceChangeTen` was my original target variable, however, I realized that it was a bit of a stretch trying to predict the movement of gold this far in advance, so I opted for the more realistic option of predicting the price movement in just one day.
+
+```{r}
+df <- read_csv("GoldData2.csv",  show_col_types = FALSE)
+df$Date <- mdy(df$Date)
+df <- df %>%
+  select(-PriceChangeTen, -PriceChangeTomorrow)
+```
+
+### Correlation matrix
+
+We will start by creating a correlation matrix to check for any multicollinearity between variables. Although most of the models that we will be using are able to work with predictor variables that are highly correlated, this gives us a good idea of which predictors may be helpful in our predictions and which ones may be less important.
+
+```{r}
+df %>%
+  select(-Date) %>%
+  cor(use = "complete.obs") %>% #complete.obs helps us ignore NA values here
+  corrplot(method = 'number', 
+           type = "lower", 
+           diag = F,
+           number.cex = 0.4,
+           tl.cex = 0.7)
+```
+
+Unfortunately, we appear to have quite a bit of correlation between many of our features, however, we appear to not have very much correlation between any of our features and our target variable, `PriceTomorrow.` This is somewhat expected as many of our features are inherently related (such as `Lag_1` and `Lag_2`). This is where the treatment as independent observations rather than time-series data makes our job quite a bit more difficult. For this reason, we will plan on using models that don't necessarily depend on the data being strictly independent observations. Examples of this include Gradient Boosting Machines and XGBoost, while time-series models we could use include ARIMA, SARIMA, Simple Exponential Smoothing, and Holt's Linear Trend Model. We will investigate all of these given we have the time. 
+
+All that being said, there is still some correlation between our predictor variables and our target, so we still have hope in producing a somewhat accurate model.
+
+### Plot EFFR, Monthly Inflation, and Yield of Ten-Year Treasury Bonds
+
+The three variables plotted below are all general indicators that contribute to movements in the price of gold. We will look at their patterns here and notice that not all of them move directly in unison with gold. 
+
+```{r}
+ggplot(df, aes(x = Date)) +
+  geom_line(aes(y = EFFR, color = "EFFR")) +
+  geom_line(aes(y = MonthlyInflationRate, color = "Monthly Inflation Rate")) +
+  geom_line(aes(y = TreasuryParYieldTenYear, color = "10-Year Treasury Par Yield")) +
+  scale_y_continuous(name = "Price") +
+  scale_color_manual(values = c("EFFR" = "blue", 
+                                "Monthly Inflation Rate" = "green", 
+                                "10-Year Treasury Par Yield" = "orange")) +
+  labs(title = "Price of EFFR, Inflation Rate, and Treasury Yield Over Time",
+       x = "Date",
+       color = "Legend") +
+  theme_minimal()
+```
+
+It appears as though monthly inflation rates have an inverse relationship with gold while EFFR rates appear to have a more direct relationship, since gold has been trending upwards in the observed dates. This should be beneficial in our project as we are thus provided with at least two variables that will contribute to prediction without having collinearity between the two. The relationship between treasury bond yields appears to be a bit more complex, but we will leave it on this graph as it fits well into the scale of the other variables.
+
+### Plot of Price and 20-Day and 50-Day Moving Averages Over Time
+
+Moving averages tend to be a useful tool in understanding the movement of a financial asset. The movement of an asset passing down through a moving average can indicate that it will continue to plunge past the average, however, separation from the moving-average can also indicate a big huge increase in the asset, as we can see in this graph below.
+
+```{r}
+ggplot(df, aes(x = Date)) +
+  geom_line(aes(y = TwentyMovingAverage, color = "Twenty-Day Moving Average")) +
+  geom_line(aes(y = FiftyDayMovingAverage, color = "Fifty-Day Moving Average")) +
+  geom_line(aes(y = Price, color = "Price")) +
+  scale_y_continuous(name = "Price") +
+  scale_color_manual(values = c("Twenty-Day Moving Average" = "lightgreen", 
+                                "Fifty-Day Moving Average" = "lightblue", 
+                                "Price" = "red")) +
+  labs(title = "Price of Gold w/ 20 & 50 Day Moving Averages",
+       x = "Date",
+       color = "Legend") +
+  theme_minimal()
+```
+
+Of course, the moving averages clearly move with the Price of gold through time. and as expected, we see several points where the movement of price gains momentum, either in the upward or downward direction and barrelling through the 50-day moving average. Hopefully, our model will be able to recognize these patterns and incorporate them into our predictions.
+
+### Plot of VIX (Volatility Index) and Crude Oil Prices
+These two variables tend to have some correlation with gold movements. The volatility index tends to be beneficial in helping us predict how large movements may be. If the index is running high, we can assume that either positive or negative movements may have greater magnitudes in this period and vice versa. Crude prices work slightly differently. The price of crude oil has a huge impact on global business. As prices of oil increase, business tends to slow down and people tend to be more conservative with their spending. These slowdowns in spending can, in turn, result in a pullback in the public stock market and an increase in gold purchases.
+```{r}
+ggplot(df, aes(x = Date)) +
+  geom_line(aes(y = Crude, color = "Crude")) +
+  geom_line(aes(y = VIX, color = "VIX")) +
+  scale_y_continuous(name = "Price") +
+  scale_color_manual(values = c("Crude" = "green", "VIX" = "blue")) +
+  labs(title = "Price of Crude Oil and VIX Over Time",
+       x = "Date",
+       color = "Legend") +
+  theme_minimal()
+```
+
+An important conclusion that we can make from this EDA is that most of our variables lie on very different scales as our target variable. For this reason, we must be sure to normalize and scale all of our predictors.
+
+## Removing NA Values
+
+We only have NA values at the very beginning of our data set due to lag variables such as PriceChangeTen, which was a possible target variable that we decided not to go forward with. This results in about 10 rows at the very beginning of the data set that contain NA values. Dropping these will have not result in any bias in the final model, it just slightly reduces the size of our data set, but I would rather do this than try to impute values as that could have a worse impact on model performance than just slightly reducing the size of our data set. We will also be getting rid of the data variable, as it will not be beneficial in this part of the analysis, although we have kept an untouched version of the dataset such that we can access the date variable when we pivot to time-series analysis.
+
+```{r}
+dim(df)
+df <- drop_na(df)
+dim(df)
+dfFull <- df
+df <- df %>%
+  select(-Date)
+```
+
+As expected, we lost 10 rows of data. This data, however, has no particular bias, it simply sits at the beginning of the group
+
+## Splitting into Training & Testing Sets
+
+Below, we are splitting the data into training and testing sets. This process allows us to train our models on our to understand the data and, hopefully, adapt to new data in the future. The performance of these models is then evaluated on the testing set. Later, we will use cross-validation within our training set to maximize performance of these models before performing our final evaluation of our best models. In this first half of the project, we will be using stratification to ensure that our training and testing sets have similar proportions of outcome variables. Although this is the incorrect way of approaching a time-series analysis, we will begin with this approach to fulfill the rubric requirements and to achieve some strong results, whether they are applicable or not. After we have completed the analysis on these training/testing sets, we will perform a chronological split on the data, using the older 80% of as the training set and the most recent 20% as our testing set. Note that we are setting a unique seed such that we can repeat this experiment and receive the same training/testing splits in the future.
+
+```{r}
+set.seed(1234)
+
+#Stratified Sampling on target variable, PriceTomorrow
+df_split <- initial_split(df, prop = 0.80, strata = PriceTomorrow)
+df_train <- training(df_split)
+df_test <- testing(df_split)
+```
+
+## Defining Recipe
+
+Below, we create a recipe that aims at predicting PriceTomorrow using all of the predictors from our dataset. Because we will mostly be using nonparametric models that don't necessarily need all observations/predictors to be independent, we will not be removing predictors due to multicollinearity. Although not all of our models necessarily need our predictors to be normalized, centered, and scaled, we will go ahead and use the same recipe for all of them to maintain simplicity.
+
+```{r}
+recipe <- recipe(PriceTomorrow ~ ., data = df_train) %>%
+  step_normalize(all_predictors()) %>%
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors())
+```
+
+## Setting up Cross-Validation
+
+Below we will be setting up our folds for cross-validation. Cross-validation is a a technique used that aims at tuning, or tailoring, our models to match our training set more appropriately. The process entails specifying a number of folds, which becomes the number of times that the training data set is re-sampled into new training and validation sets. This allows us to then tune the parameters of our models such that they maximize accuracy on the validation sets. This process allows us to find better versions of our models that will hopefully adapt better to the final testing data without actually testing against the testing set, since we may not tune our models after our final predictions have been made. In a nutshell, we are cutting the training self into new "training" and "testing" sets and repeating this process k times. This way, we can train the model and test it on each fold's "testing" (validation) set and get some measurable result of how well our model did and tune our models to match the highest-ranking parameter combination.
+
+```{r}
+#Setting up k-folds with k = 5
+folds <- vfold_cv(df_train, v = 5, strata = PriceTomorrow)
+```
+
+## Defining Models
+
+Below, we define the models that we will be using for cross-validation. I opted for Random Forest, GBM, XGB, Neural Network, and k-nearest neighbors. I chose these models because, as shown above in the correlation matrix, we have quite a bit of multicollinearity in predictor variables. In an effort to maintain most of my data, I chose models that tend to deal with multicollinearity a bit better (Besides KNN). Note that we have included several key parameters in each model to be tuned in cross-validation. The most important parameters that we will be tuning in these models is trees (for the tree-based models), hidden units & epochs (for the neural network),  and neighbors (for k-nearest neighbors). These parameters tend to have the greatest impact on performance and computation time for their respective models. Hopefully, through cross-validation, we will find combinations of these parameters that achieve high levels of accuracy without excessive levels of computation time. 
+
+```{r}
+#Random Forest
+rf_model <- rand_forest(
+  trees = tune(),  
+  mtry = tune(),   
+  min_n = tune()   
+  ) %>%
+  set_engine("randomForest") %>%
+  set_mode("regression")
+
+#Gradient Boosting Machine
+gbm_model <- boost_tree(
+  trees = tune(),
+  min_n = tune(),
+  learn_rate = tune(),
+  tree_depth = tune()
+  ) %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+
+#XG Boost
+xgb_model <- boost_tree(
+  trees = tune(),
+  tree_depth = tune(),
+  learn_rate = tune(),
+  loss_reduction = tune(),
+  sample_size = tune()
+  ) %>%
+  set_engine("xgboost") %>%
+  set_mode("regression")
+
+nn_model <- mlp(
+  hidden_units = tune(),
+  penalty = tune(),     
+  epochs = tune()        
+  ) %>%
+  set_engine("nnet") %>%  
+  set_mode("regression")
+
+#K-Nearest Neighbors
+knn_model <- nearest_neighbor(
+  neighbors = tune()
+  ) %>%
+  set_mode("regression") %>%
+  set_engine("kknn")
+```
+
+### Defining Cross-Validation Grids
+
+Below, we define the ranges of all the tuning parameters for our different models. These grids specify the ranges of the parameters that will be tuned in each model. Specifying larger ranges with more levels inherently results in greater computation times as there are more models to make (from more levels) and those models become more complex (as parameters such as trees or neighbors increase). For this process, I set relatively large ranges for even some of the more demanding models. Although this can result in significantly longer processing times, we save the results such that the tuning does not have to be repeated every time that the program is run/knitted. These large ranges will help us test a large number of different models with potential for high-accuracy, which should be worth the time spent on computation.
+
+```{r}
+#Random Forest Cross-Validation Grid
+rf_grid <- grid_regular(
+  trees(range = c(50, 300)),
+  mtry(range = c(2, 20)),
+  min_n(range = c(1, 10)),
+  levels = 10
+)
+
+#GBM Cross-Validation Grid
+gbm_grid <- grid_regular(
+  trees(c(50, 300)),
+  min_n(c(1, 20)),
+  learn_rate(c(0.001, 0.1)),
+  tree_depth(c(3, 10)),
+  levels = 10
+)
+
+#XGB Cross-Validation Grid
+xgb_grid <- grid_regular(
+  trees(range = c(50, 300)),
+  tree_depth(range = c(3, 10)),
+  learn_rate(range = c(0.001, 0.1)),
+  loss_reduction(range = c(0, 10)),
+  sample_size(range = c(0, 1)),
+  levels = 10
+)
+##NN Cross-Validation Grid
+nn_grid <- grid_regular(
+  hidden_units(range = c(1, 10)), 
+  penalty(range = c(0, 0.1)),      
+  epochs(range = c(50, 200)),   
+  levels = 5
+)
+
+#KNN Grid
+neighbors_grid <- grid_regular(
+  neighbors(range = c(1, 10)), 
+  levels = 10
+)
+```
+
+### Defining Workflows
+
+Here, we are simply defining the workflows for each model, inputting our previously defined recipe and models in preparation for tuning.
+
+```{r}
+#Random Forest Workflow
+rf_workflow <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(rf_model)
+
+#GBM Workflow
+gbm_workflow <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(gbm_model)
+
+#XGB Workflow
+xgb_workflow <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(xgb_model)
+
+#Neural Network Workflow
+nn_workflow <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(nn_model)
+
+#KNN Workflow
+knn_workflow <- workflow() %>% 
+  add_model(knn_model) %>% 
+  add_recipe(recipe)
+```
+
+## Tuning Models
+
+Tuning is the key part of cross-validation. We have separated each of the tuning blocks such that we can get a general idea of how long each model is taking to tune and uniquely identify any issues as they arise. 
+
+### Random Forest Tuning
+
+```{r, eval=FALSE}
+rf_tune_res <- tune_grid(
+  object = rf_workflow,
+  resamples = folds,
+  grid = rf_grid
+)
+```
+
+### GBM Tuning
+
+```{r, eval=FALSE}
+gbm_tune_res <- tune_grid(
+  object = gbm_workflow,
+  resamples = folds,
+  grid = gbm_grid
+)
+```
+
+### XGB Tuning
+
+```{r, eval=FALSE}
+xgb_tune_res <- tune_grid(
+  object = xgb_workflow,
+  resamples = folds,
+  grid = xgb_grid
+)
+```
+
+### Neural Network Tuning
+
+```{r, eval=FALSE}
+nn_tune_res <- tune_grid(
+  object = nn_workflow,
+  resamples = folds,
+  grid = nn_grid
+)
+```
+
+### KNN Tuning
+
+```{r, eval=FALSE}
+knn_tune_res <- tune_grid(
+  object = knn_workflow, 
+  resamples = folds, 
+  grid = neighbors_grid
+)
+```
+
+### Saving Tuning Results
+
+```{r, eval=FALSE}
+write_rds(rf_tune_res, file = "rf.rds")
+write_rds(gbm_tune_res, file = "gbm.rds")
+write_rds(xgb_tune_res, file = "xgb.rds")
+write_rds(nn_tune_res, file = "nn.rds")
+write_rds(knn_tune_res, file = "knn.rds")
+```
+
+### Loading Tuning Results Back in
+
+```{r}
+rf_tuned <- readRDS(file = "rf.rds")
+gbm_tuned <- readRDS(file = "gbm.rds")
+xgb_tuned <- readRDS(file = "xgb.rds")
+nn_tuned <- readRDS(file = "nn.rds")
+knn_tuned <- readRDS(file = "knn.rds")
+```
+
+### Tuning Results
+
+Now that all of the models have been tuned, we will use autoplot to examine the results of all the models that we have created. Although we will not use these plots to pick our models, examining the plots gives us a better idea of which parameters have significant impacts on model performance.
+
+```{r}
+autoplot(rf_tuned)
+autoplot(gbm_tuned)
+autoplot(xgb_tuned)
+autoplot(nn_tuned)
+autoplot(knn_tuned)
+```
+
+Although many of these plots are quite complicated due to the high number of tuning parameters, we can observe some patterns. For example, we can see that the neural network model appeared to perform better and better as the number of epochs increased and as the number of hidden units increased (in most cases). In the KNN model, we can see that the model achieved its best results around the n = 4 neighbors area, where RMSE was minimized and RSQ was maximized. As for the RF, GBM, and XGB models, these visualizations are quite hard to interpret, so we will rely on some R functions to help us identify the ideal parameters for these models.
+
+### Displaying Best Tuning Results
+
+Finally, we will print the 5 best-performing models from each type and assess them based on Root Mean Squared Error. I opted for this metric because it does not different between positive/negative mistakes and it is slightly more sensitive to outliers than an alternative metric, MAE.
+
+```{r}
+show_best(rf_tuned, metric = "rmse")
+show_best(gbm_tuned, metric = "rmse")
+show_best(xgb_tuned, metric = "rmse")
+show_best(nn_tuned, metric = "rmse")
+show_best(knn_tuned, metric = "rmse")
+```
+
+As we can see from the results above, our Random Forest and KNN models achieved the lowest mean RMSE with means of 18.29927 and 20.97183, respectively. We will thus extract the best tuning results and fit our final models with those parameters.
+
+### Extracting Best Tuning Results and Fitting Final Models
+
+Now, we will extract the best tuning results, within one standard deviation (in an effort to find a model that performs as well/almost as well as the best model while using less computational power), add them to our finalized workflows, and fit our final models to the entire training set. 
+
+```{r}
+best_rf <- select_by_one_std_err(rf_tuned, desc(trees),metric = "rmse")
+best_knn <- select_by_one_std_err(knn_tuned, desc(neighbors),metric = "rmse")
+
+rf_final_wf <- finalize_workflow(rf_workflow, best_rf)
+knn_final_wf <- finalize_workflow(knn_workflow, best_knn)
+
+rf_final_fit <- fit(rf_final_wf, df_train)
+knn_final_fit <- fit(knn_final_wf, df_train)
+```
+
+## Assessing Final Models Against Test Data
+
+Now that our final models have been fit, we use them to make predictions on the testing data and compile all of these predicitons into the same data set for simple plotting and model assessment.
+
+```{r}
+rf_predictions <- augment(rf_final_fit, new_data = df_test) %>%
+  select(.pred) %>%
+  rename(RF_Prediction = .pred)
+
+knn_predictions <- augment(knn_final_fit, new_data = df_test) %>%
+  select(.pred) %>%
+  rename(KNN_Prediction = .pred)
+
+df_test_with_predictions <- df_test %>%
+  bind_cols(rf_predictions) %>%
+  bind_cols(knn_predictions)
+
+df_test_with_predictions <- df_test_with_predictions %>%
+  mutate(Index = row_number())
+```
+
+### Plotting Actual vs. Predicted Future values of Gold
+
+```{r}
+ggplot(df_test_with_predictions, aes(x = Index)) +
+  geom_line(aes(y = PriceTomorrow, color = "Actual Price")) +
+  geom_line(aes(y = RF_Prediction, color = "RF Prediction")) +
+  scale_color_manual(values = c("Actual Price" = "red", 
+                                "RF Prediction" = "blue")) +
+  labs(title = "RF Predicted vs. Actual Price Data",
+       x = "Index",
+       y = "Price",
+       color = "Legend") +
+  theme_minimal()
+
+ggplot(df_test_with_predictions, aes(x = Index)) +
+  geom_line(aes(y = PriceTomorrow, color = "Actual Price")) +
+  geom_line(aes(y = KNN_Prediction, color = "KNN Prediction")) +
+  scale_color_manual(values = c("Actual Price" = "red", 
+                                "KNN Prediction" = "blue")) +
+  labs(title = "KNN Predicted vs. Actual Price Data",
+       x = "Index",
+       y = "Price",
+       color = "Legend") +
+  theme_minimal()
+```
+
+### Final Model Results
+
+Now that we have visualized our actual vs. predicted data, we will use the augment function to get a numerical figure describing our testing accuracy. We will continue to use the RMSE metric such that we can compare our testing results with our training results to get an understanding of whether or not our models were over/under fitting.
+
+```{r}
+augment(rf_final_fit, new_data = df_test) %>%
+  yardstick::rmse(truth = PriceTomorrow, estimate = .pred)
+
+augment(knn_final_fit, new_data = df_test) %>%
+  yardstick::rmse(truth = PriceTomorrow, estimate = .pred)
+```
+
+From the results, we can see that our testing results were very similar to our training results, meaning that our models adapted well to new data and did not over/under fit in the training process. Woohoo! Additionally, we achieved very solid respectable levels of RMSE in both of our final models, with the results coming in at 19.5 and 21.2, which is very reasonable considering that our price variable ranges from around 1700 to around 2400.
+
+## Modeling Using Chronological Split
+
+We will now pivot to time-series forecasting. Although we achieved very good results with our past models, these results do not have any concrete application due to the way that the data was split. Because we used stratification in splitting our training/testing sets, our testing set does not have any linearity thus, we cannot access whether our models would be effective in consecutively predicting price movements of gold. Rather, our models are very effective at predicting the price of gold at a random assortment of dates. 
+
+Because the steps that we will take after splitting the data are identical to the steps previously taken, we will not narrate most of these steps. They follow the same logic and workflow as before.
+
+### Setting up new data splits w/dates included
+
+```{r}
+set.seed(1234)
+
+#These data sets will be using the same models as above. 
+cutoff <- floor(0.80 * nrow(dfFull))
+df_train <- dfFull %>% head(cutoff)
+df_test <- dfFull %>% tail(nrow(dfFull) - cutoff)
+
+df_train <- df_train %>%
+  select(-Date)
+
+df_test <- df_test %>%
+  select(-Date)
+
+# These data set will be using time-series models (ARIMA and Prophet)
+cutoff <- floor(0.80 * nrow(dfFull))
+TS_df_train <- dfFull %>% head(cutoff)
+TS_df_test <- dfFull %>% tail(nrow(dfFull) - cutoff)
+
+# Prepare exogenous regressors (xreg) for ARIMA model
+xreg_train <- TS_df_train %>% 
+  select(-PriceTomorrow, -Date) %>% 
+  as.matrix()
+
+xreg_test <- TS_df_test %>% 
+  select(-PriceTomorrow, -Date) %>% 
+  as.matrix()
+
+```
+
+### Re-initializing recipe with new df_train set
+
+```{r}
+recipe <- recipe(PriceTomorrow ~ ., data = df_train) %>%
+  step_normalize(all_predictors()) %>%
+  step_center(all_predictors()) %>%
+  step_scale(all_predictors())
+```
+
+
+### Defining Workflows for each model
+
+Keep in mind, the grids and models have already been defined in the previous sections, we are now using the same models with a new recipe that uses our new df_train set.
+
+```{r}
+#Random Forest Workflow
+rf_workflow <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(rf_model)
+
+#GBM Workflow
+gbm_workflow <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(gbm_model)
+
+#XGB Workflow
+xgb_workflow <- workflow() %>%
+  add_recipe(recipe) %>%
+  add_model(xgb_model)
+
+#KNN Workflow
+knn_workflow <- workflow() %>% 
+  add_model(knn_model) %>% 
+  add_recipe(recipe)
+```
+
+### Tuning Models
+
+Here, we will be tuning same models as earlier with a new training/testing split. Note that we would ideally NOT be using stratified sampling in this cross-validation process, however, I don't  have the knowledge necessary to perform cross-validation for time-series data. Hopefully I will be able to learn and implement this correctly in the future.
+
+### Random Forest Tuning
+
+```{r, eval=FALSE}
+rf_tune_res <- tune_grid(
+  object = rf_workflow,
+  resamples = folds,
+  grid = rf_grid
+)
+```
+
+### GBM Tuning
+
+```{r, eval=FALSE}
+gbm_tune_res <- tune_grid(
+  object = gbm_workflow,
+  resamples = folds,
+  grid = gbm_grid
+)
+```
+
+### XGB Tuning
+
+```{r, eval=FALSE}
+xgb_tune_res <- tune_grid(
+  object = xgb_workflow,
+  resamples = folds,
+  grid = xgb_grid
+)
+```
+
+### KNN Tuning
+
+```{r, eval=FALSE}
+knn_tune_res <- tune_grid(
+  object = knn_workflow, 
+  resamples = folds, 
+  grid = neighbors_grid
+)
+```
+
+### Saving Tuning Results
+
+```{r, eval=FALSE}
+write_rds(rf_tune_res, file = "rf_ts.rds")
+write_rds(gbm_tune_res, file = "gbm_ts.rds")
+write_rds(xgb_tune_res, file = "xgb_ts.rds")
+write_rds(knn_tune_res, file = "knn_ts.rds")
+```
+
+### Loading Tuning Results Back in
+
+```{r}
+rf_tuned <- readRDS(file = "rf_ts.rds")
+gbm_tuned <- readRDS(file = "gbm_ts.rds")
+xgb_tuned <- readRDS(file = "xgb_ts.rds")
+knn_tuned <- readRDS(file = "knn_ts.rds")
+```
+
+### Tuning Results
+
+Now that all of the models have been tuned, we will use autoplot to examine the results of all the models that we have created. Although we will not use these plots to pick our models, examining the plots gives us a better idea of which parameters have significant impacts on model performance.
+
+```{r}
+autoplot(rf_tuned)
+autoplot(gbm_tuned)
+autoplot(xgb_tuned)
+autoplot(knn_tuned)
+```
+
+### Displaying Best Tuning Results
+
+Finally, we will print the 5 best-performing models from each type and assess them based on Root Mean Squared Error. I opted for this metric because it does not different between positive/negative mistakes and it is slightly more sensitive to outliers than an alternative metric, MAE.
+
+```{r}
+show_best(rf_tuned, metric = "rmse")
+show_best(gbm_tuned, metric = "rmse")
+show_best(xgb_tuned, metric = "rmse")
+show_best(knn_tuned, metric = "rmse")
+```
+
+### Extracting Best Tuning Results and Fitting Final Models
+
+```{r}
+best_rf <- select_by_one_std_err(rf_tuned, desc(trees),metric = "rmse")
+best_knn <- select_by_one_std_err(knn_tuned, desc(neighbors),metric = "rmse")
+
+rf_final_wf <- finalize_workflow(rf_workflow, best_rf)
+knn_final_wf <- finalize_workflow(knn_workflow, best_knn)
+
+rf_final_fit <- fit(rf_final_wf, df_train)
+knn_final_fit <- fit(knn_final_wf, df_train)
+
+```
+
+### Assessing Performance of Final Models Against Test Data
+
+```{r}
+rf_predictions <- augment(rf_final_fit, new_data = df_test) %>%
+  select(.pred) %>%
+  rename(RF_Prediction = .pred)
+
+knn_predictions <- augment(knn_final_fit, new_data = df_test) %>%
+  select(.pred) %>%
+  rename(KNN_Prediction = .pred)
+
+
+df_test_with_predictions <- df_test %>%
+  bind_cols(rf_predictions) %>%
+  bind_cols(knn_predictions)
+  
+df_test_with_predictions <- df_test_with_predictions %>%
+  mutate(Index = row_number())
+```
+
+### Plotting Test Predictions With Actual Prices
+
+```{r}
+ggplot(df_test_with_predictions, aes(x = Index)) +
+  geom_line(aes(y = PriceTomorrow, color = "Actual Price")) +
+  geom_line(aes(y = RF_Prediction, color = "RF Prediction")) +
+  scale_color_manual(values = c("Actual Price" = "red", 
+                                "RF Prediction" = "blue")) +
+  labs(title = "RF Predicted vs. Actual Price Data",
+       x = "Index",
+       y = "Price",
+       color = "Legend") +
+  theme_minimal()
+
+ggplot(df_test_with_predictions, aes(x = Index)) +
+  geom_line(aes(y = PriceTomorrow, color = "Actual Price")) +
+  geom_line(aes(y = KNN_Prediction, color = "KNN Prediction")) +
+  scale_color_manual(values = c("Actual Price" = "red", 
+                                "KNN Prediction" = "blue")) +
+  labs(title = "KNN Predicted vs. Actual Price Data",
+       x = "Index",
+       y = "Price",
+       color = "Legend") +
+  theme_minimal()
+```
+
+```{r}
+df_for_simulation <- df_test_with_predictions %>%
+  select(Index, Price, PriceTomorrow, RF_Prediction, KNN_Prediction)
+```
+
+## Simulating Investing
+
+Below is an algorithm that cycles through our testing data set. When our model predicts that the price tomorrow will close at a price that is greater than or equal to the current price plus 5, it invests $10. When it predicts a decrease in the price, it sells all held shares of gold. This allows us to simulate the true accuracy and potential benefit that can be taken from these models.
+
+```{r}
+cash <- 100
+shares <- 0
+df_for_simulation$shares <- 0
+df_for_simulation$cash <- 0
+df_for_simulation$PortfolioVal <- 0
+df_for_simulation$PredMinusCurrent <- 0
+
+for (i in 1:(nrow(df_for_simulation) - 1)) {
+  current_price <- df_for_simulation$Price[i]
+  predicted_price <- df_for_simulation$RF_Prediction[i]
+  next_day_price <- df_for_simulation$Price[i + 1]
+  
+  # Buy condition: Predicted price is $10 or more above the current price
+  if (predicted_price >= (current_price + 5) && cash >= 10) {
+    # Determine how many shares to buy with the limit of $5
+    cash <- cash - 10
+    shares <- shares + (10/current_price)
+  }
+  
+  # Sell condition: Predicted price is $5 or more below the current price
+  if (predicted_price <= (current_price - 5)) {
+    # Sell all shares at the next day's price
+    cash <- cash + shares * current_price
+    shares <- 0
+  }
+  df_for_simulation$shares[i] <- shares
+  df_for_simulation$cash[i] <- cash
+  df_for_simulation$PortfolioVal[i] <- cash + shares * df_for_simulation$Price[i]
+  df_for_simulation$PredMinusCurrent[i] <- predicted_price - current_price
+}
+
+df_for_simulation$shares[nrow(df_for_simulation)] <- shares
+df_for_simulation$cash[nrow(df_for_simulation)] <- cash
+df_for_simulation$PortfolioVal[nrow(df_for_simulation)] <- cash + shares * df_for_simulation$Price[nrow(df_for_simulation)]
+
+ggplot(df_for_simulation, aes(x = Index, y = PortfolioVal)) +
+  geom_line(color = "blue") +  # Use line plot to show trends over time
+  labs(title = "Simulated Portfolio Value Through Testing Set",
+       x = "Index (Days)",
+       y = "Portfolio Value")
+```
+
+In the graph above, we see the results of investing utilizing our newly-trained Random Forest model. Although we did see an overall increase in portfolio value through the time period, it was a very marginal gain. Because our model's predicted values generally laid beneath the current price of gold, it defaulted to not investing any money on most days. While I'm sure a better simulation of this algorithm could be made, this algorithm demonstrates that our model is not very reliable and should likely not be used for investing real money into the market. This result is not necssarily surprising: If it was this simple to predict the price of these changes, I'm sure many people would be doing it and taking away the value that we may find in it.
+
+### Final Results of RF and KNN Models
+
+```{r}
+augment(rf_final_fit, new_data = df_test) %>%
+  yardstick::rmse(truth = PriceTomorrow, estimate = .pred)
+
+augment(knn_final_fit, new_data = df_test) %>%
+  yardstick::rmse(truth = PriceTomorrow, estimate = .pred)
+```
+As we can see, our testing results were much lower than our previously recorded results when using stratified sampling. This goes to show the increased difficult that comes with time-series analysis. 
+
+## Time-Series Forecasting
+
+### Arima Model
+We will now try to fit several models that are specifically designed for time-series analysis. Please keep in mind that these were not covered in class and that all of the following code was compiled using online sources and marginal amounts of time. Portions of this are not complete (such as the cross-validation portion), but I decided to leave them in the final project to give a hint to the next steps that this project will take.
+```{r}
+arima_model <- auto.arima(TS_df_train$PriceTomorrow, xreg = xreg_train)
+arima_forecast <- forecast(arima_model, xreg = xreg_test)
+```
+
+### Prophet Model
+
+```{r}
+df_prophet <- TS_df_train %>%
+  select(Date, PriceTomorrow) %>%
+  rename(ds = Date, y = PriceTomorrow)
+
+prophet_model <- prophet(df_prophet)
+
+future <- TS_df_test %>%
+  select(Date) %>%
+  rename(ds = Date)
+prophet_forecast <- predict(prophet_model, future)
+```
+
+### Rolling Window Cross-Validation
+
+```{r}
+time_splits <- rolling_origin(dfFull, initial = 500, assess = 150, skip = 30)
+
+results <- list()
+for (split in time_splits$splits) {
+  train_data <- training(split)
+  test_data <- testing(split)
+  
+  model_fit <- auto.arima(train_data$PriceTomorrow)
+  
+  forecast <- forecast(model_fit, h = nrow(test_data))
+  
+  results[[length(results) + 1]] <- list(
+    split = split,
+    forecast = forecast
+  )
+}
+```
+
+### Combine and Plot Predictions
+
+```{r}
+TS_df_test_with_predictions <- TS_df_test %>%
+  mutate(
+    ARIMA_Prediction = arima_forecast$mean,
+    Prophet_Prediction = prophet_forecast$yhat
+  )
+
+ggplot(TS_df_test_with_predictions, aes(x = Date)) +
+  geom_line(aes(y = PriceTomorrow, color = "Actual Price")) +
+  geom_line(aes(y = ARIMA_Prediction, color = "ARIMA Prediction")) +
+  geom_line(aes(y = Prophet_Prediction, color = "Prophet Prediction")) +
+  labs(title = "Predicted vs. Actual Price Data",
+       x = "Date",
+       y = "Price Tomorrow",
+       color = "Legend") +
+  theme_minimal()
+```
+
+Although the ARIMA prediction appears to be doing somewhat of a good job at predicting the data, it is truly not. In reality, it is just mimicking the previous day's price, resulting in a prediction that is one day behind the actual movement. 
+
+```{r}
+df_for_simulation <- TS_df_test_with_predictions %>%
+  select(Price, PriceTomorrow, ARIMA_Prediction, Date)
+```
+
+```{r}
+cash <- 100
+shares <- 0
+df_for_simulation$shares <- 0
+df_for_simulation$cash <- 0
+df_for_simulation$PortfolioVal <- 0
+df_for_simulation$PredMinusCurrent <- 0
+
+for (i in 1:(nrow(df_for_simulation) - 1)) {
+  current_price <- df_for_simulation$Price[i]
+  predicted_price <- df_for_simulation$ARIMA_Prediction[i]
+  next_day_price <- df_for_simulation$Price[i + 1]
+  
+  # Buy condition: Predicted price is $10 or more above the current price
+  if (predicted_price >= (current_price + 5) && cash >= 10) {
+    # Determine how many shares to buy with the limit of $5
+    cash <- cash - 10
+    shares <- shares + (10/current_price)
+  }
+  
+  # Sell condition: Predicted price is $5 or more below the current price
+  if (predicted_price <= (current_price - 5)) {
+    # Sell all shares at the next day's price
+    cash <- cash + shares * current_price
+    shares <- 0
+  }
+df_for_simulation$shares[i] <- shares
+df_for_simulation$cash[i] <- cash
+
+df_for_simulation$PortfolioVal[i] <- cash + shares * df_for_simulation$Price[i]
+
+df_for_simulation$PredMinusCurrent[i] <- predicted_price - current_price
+}
+
+df_for_simulation$shares[nrow(df_for_simulation)] <- shares
+df_for_simulation$cash[nrow(df_for_simulation)] <- cash
+df_for_simulation$PortfolioVal[nrow(df_for_simulation)] <- cash + shares * df_for_simulation$Price[nrow(df_for_simulation)]
+df_for_simulation
+ggplot(df_for_simulation, aes(x = Date, y = PortfolioVal)) +
+  geom_line(color = "blue") +  # Use line plot to show trends over time
+  labs(title = "Simulated Portfolio Value Through Testing Set",
+       x = "Index (Days)",
+       y = "Portfolio Value")
+
+```
+
+As we can see, the ARIMA predictions never laid above the current price of Gold, so no investments were every made. Back to the drawing board!
+
+## Conclusion
+
+  This project was a great testament to the complication of world markets these days. Although it is common knowledge that markets don't move in predictable ways and nobody every truly knows what is going to happen on any given day, any student majoring in statistics wants to dig deeper into this an determine for themselves if there truly is an underlying pattern or way of predicting these movements. Of course, this has been done thousands and thousands of times over, with varying levels of success, however, I believe that this project speaks to the difficulty in this task. In this project, we used practically every applicable data point at our disposal, ranging from economic indicators, to lag variables, to other calculations on these predictors. We then inputted this data into some of the most powerful machine learning algorithms that are publicly accessible, and STILL did not achieve any notable level of accuracy in our predictions. That point, I believe, speaks to the difficulty in the question that we were trying to solve, however, it also speaks to the lack of knowledge on my end. Although we were using very powerful techniques and clean data, this project shined a light on areas of my machine learning that need a lot of work, which particularly includes my experience with time-series analysis. Although I was warned by Dr. Coburn that this project went outside of the scope of the class and that I would have to either cut out very important parts of the task or introduce new skills to correctly address the question, I decided that I would go forward with it. I was driven to do this because the question seemed challenging but also applicable to both real-world situations. Although it was certainly challenging, I am proud of the findings that were made in this project and  I am very happy to have shined a light on some of the areas of my machine learning background that are lacking. Now that I have reflected a bit on the project as a whole, I'll dive into the specifics of what we achieved and what needs more work. 
+
+  Although there are several aspects of this project that can be scrutinized as not being thorough enough or addressing a problem incorrectly, one thing that we can say with certainty is that we succeeded in using stratified sampling and cross-validation to find a model that suited our data well and adapted well to new testing data. Although using stratified sampling somewhat discarded the overall purpose of the project, it was a good presentation of the skills that we learned through this quarter and I'm happy with the level of accuracy that we achieved with our final models. We successfully tied together all of the skills that we were taught, starting from EDA and feature engineering, to creating a recipe, then initializing workflows and cross-validation, to fitting models and assessing them to find the ideal parameters, and finally to fitting our final models and using them to make predictions on our testing set. We determined that, for this project, the Random Forest and K-Nearest Neighbors models were more effective than the GBM, XGB and NN models, although their predictions of our testing data set looked extremely different. I will say I was very surprised to find that our KNN model performed better than the GBM, XGB, and NN models. Going into the project, I had much more experience using these more advanced models as they tend to provide better results, however, this certainly showed that simpler models still have great power. While we were successful in checking all of the boxes and demonstrating the skills that were required by the rubric, that is not to say that our project was even close to perfect. As I mentioned, we defeated the initial purpose of the project by using stratified sampling, something that we tried (with marginal success) to correct in the second half of the project. Although we didn't achieve ideal levels of accuracy, we learned what some of the next steps might be and the direction that we need to go to build on the skills that were learned in class. I'm eager to build on these skills and learn how to implement cross-validation for time-series analysis and design new models that are specifically geared for these kinds of questions. I also believe that a good next step for this project would be to return to the first step of the project, which was collecting data. Perhaps, including several more years of data and trying to find new predictor variables could help us in achieving greater accuracy for our time-series models. Given that our data set only spanned three years, we may have missed out on long patterns that evolve through several years (like Bitcoin's 4-year cycle).
+  
+  Overall, I'm happy with the route that this project took and I hope that you enjoyed reading through my thought process as I worked through this project. If you have any insight on areas that I can improve that I didn't mention, please let me know. Additionally, if you know any good sources to learn more about Time-Series Analysis, I would be thankful if you could let me know about those too (this is my last quarter at UCSB so I will not be able to take PSTAT 174).

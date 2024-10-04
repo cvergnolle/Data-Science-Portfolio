@@ -1,0 +1,62 @@
+﻿PSTAT 131 Final Project Codebook
+
+
+Date:
+* Date of recorded price and other measures
+Lag_2:
+* Price of gold 2 days before date
+* Calculated by shifting the price of gold down two days
+Lag_1:
+* Price of gold 1 day before date
+* Calculated by shifting the price of gold down one day
+PriceToday:
+* Price of Gold at respective date
+* https://www.usagold.com/daily-gold-price-history/
+Price Tomorrow:
+* Price of Gold Tomorrow
+* Calculated by shifting the price of gold up one day
+* Target
+PriceChangeTomorrow:
+* Change in price between the present price and tomorrow’s price
+PriceChangeTen:
+* Change in price between present price and price 10 days from now
+StdDevTen:
+* The standard deviation of gold prices in the last 10 days
+TwentyMovingAverage:
+* Moving average of gold price in last 20 days. Calculated by summing the price of gold in over that span of time and dividing by the number of days.
+FiftyMovingAverage:
+* Moving average of gold price in last 50 days. Calculated by summing the price of gold in over that span of time and dividing by the number of days.
+TwoHundredMovingAverage:
+* Moving average of gold price in last 200 days. Calculated by summing the price of gold in over that span of time and dividing by the number of days.
+MonthlyInflationRate:
+* Historical inflation rate by month, assuming no change in inflation from June 2024 - present.
+* https://www.usinflationcalculator.com/inflation/historical-inflation-rates/
+EFFR:
+* Effective federal funds rate - Current interest rate set by the Fed
+* https://www.newyorkfed.org/markets/reference-rates/effr
+Volume:
+* Total amount of overnight loans taking place at the Fed, recorded in Billions
+* https://www.newyorkfed.org/markets/reference-rates/effr
+TreasuryParYieldMonth:
+* Yields on 1-month U.S. Treasury Bonds
+* https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_yield_curve&field_tdr_date_value_month=202408
+TreasuryParYieldTwoYear:
+* Yields on 2-year U.S. Treasury Bonds
+* https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_yield_curve&field_tdr_date_value_month=202408
+TreasuryParYieldTenYear:
+* Yields on 10-year U.S. Treasury Bonds
+* https://home.treasury.gov/resource-center/data-chart-center/interest-rates/TextView?type=daily_treasury_yield_curve&field_tdr_date_value_month=202408
+DXY:
+* Price of US Dollar Index, showing the strength of USD in relation to other currencies
+* https://www.investing.com/indices/usdollar-historical-data
+SP:
+* Opening price of S&P 500
+* A broad measure of U.S. stock market performance
+* https://www.nasdaq.com/market-activity/index/spx/historical?page=1&rows_per_page=10&timeline=y5
+VIX:
+* The opening price of VIX (Volatility Index)
+* Measures market volatility; often called the “fear index”
+* https://finance.yahoo.com/quote/%5EVIX/history/?period1=1640995200&period2=1723573736
+Crude:
+* Opening price of Crude Oil (CL=F)
+* https://finance.yahoo.com/quote/CL%3DF/history/?period1=1640995200&period2=1723573988
